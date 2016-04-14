@@ -27,6 +27,7 @@ public class Application extends SpeechletRequestStreamHandler {
     }
 
     public static void main(String[] args) throws IOException, FeedException {
+
     }
 
 

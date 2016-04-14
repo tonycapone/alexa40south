@@ -5,17 +5,17 @@ import com.amazon.speech.speechlet.*;
 import com.amazon.speech.ui.PlainTextOutputSpeech;
 import com.amazon.speech.ui.Reprompt;
 import com.amazon.speech.ui.SimpleCard;
+import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
 import org.slf4j.Logger;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.List;
 
 public class NewsSpeechlet implements Speechlet {
 
@@ -43,17 +43,39 @@ public class NewsSpeechlet implements Speechlet {
         String intentName = (intent != null) ? intent.getName() : null;
 
         if ("GetHeadlines".equals(intentName)) {
-            return getHelloResponse();
-        } else {
+            return getHeadlines();
+        } else if ("ReadHeadline".equals(intentName)){
+            String index = intent.getSlot("Index").getValue();
+            return readHeadline(index);
+        }
+        else {
             throw new SpeechletException("Invalid Intent");
         }
     }
 
-    private SpeechletResponse getHelloResponse()  {
+    private SpeechletResponse readHeadline(String index) {
+        SyndEntry syndEntry = null;
+        try {
+             syndEntry = parseFeed().get(Integer.valueOf(index) + -1);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (FeedException e) {
+            e.printStackTrace();
+        }
+
+        return getSpeechletResponse(syndEntry.getDescription().getValue());
+    }
+
+    @Override
+    public void onSessionEnded(SessionEndedRequest request, Session session) throws SpeechletException {
+
+    }
+
+    private SpeechletResponse getHeadlines()  {
 
         String speechText = null;
         try {
-            speechText = parseFeed();
+            speechText = getHeadlinesAsString();
 
         } catch (FeedException e) {
             e.printStackTrace();
@@ -64,7 +86,12 @@ public class NewsSpeechlet implements Speechlet {
             log.error(String.valueOf(e));
             speechText = "error";
         }
+        return getSpeechletResponse(speechText);
 
+
+    }
+
+    private SpeechletResponse getSpeechletResponse(String speechText) {
         // Create the Simple card content.
         SimpleCard card = new SimpleCard();
         card.setTitle("FortySouth");
@@ -77,13 +104,17 @@ public class NewsSpeechlet implements Speechlet {
         return SpeechletResponse.newTellResponse(speech, card);
     }
 
-    @Override
-    public void onSessionEnded(SessionEndedRequest request, Session session) throws SpeechletException {
-
+    private String getHeadlinesAsString() throws IOException, FeedException {
+        String speechText;List<SyndEntry> syndEntries = parseFeed();
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("Here are the top headlines: ");
+        syndEntries.forEach(syndEntry -> stringBuilder.append(syndEntry.getTitle()).append(". "));
+        speechText = stringBuilder.toString();
+        return speechText;
     }
 
     private SpeechletResponse getWelcomeResponse() {
-        String speechText = "Welcome to the Forty South News getter";
+        String speechText = "Welcome to Forty South News";
 
         // Create the Simple card content.
         SimpleCard card = new SimpleCard();
@@ -101,17 +132,13 @@ public class NewsSpeechlet implements Speechlet {
         return SpeechletResponse.newAskResponse(speech, reprompt, card);
     }
 
-    private String  parseFeed() throws IOException, FeedException {
+    private List<SyndEntry> parseFeed() throws IOException, FeedException {
         URL feedUrl = new URL("http://40southnews.com/feed/");
 
         SyndFeedInput feedInput = new SyndFeedInput();
         SyndFeed feed = feedInput.build(new XmlReader(feedUrl));
 
-        StringBuilder stringBuilder = new StringBuilder();
-
-        feed.getEntries().forEach(syndEntry -> stringBuilder.append(syndEntry.getTitle()).append(", "));
-
-        return stringBuilder.toString();
+        return feed.getEntries();
 
     }
 
