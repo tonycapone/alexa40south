@@ -1,6 +1,7 @@
 package com.anthonyrhowell.newsgetter;
 
 import com.amazon.speech.slu.Intent;
+import com.amazon.speech.slu.Slot;
 import com.amazon.speech.speechlet.*;
 import com.amazon.speech.ui.PlainTextOutputSpeech;
 import com.amazon.speech.ui.Reprompt;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+import java.util.Optional;
 
 public class NewsSpeechlet implements Speechlet {
 
@@ -45,15 +47,33 @@ public class NewsSpeechlet implements Speechlet {
         if ("GetHeadlines".equals(intentName)) {
             return getHeadlines();
         } else if ("ReadHeadline".equals(intentName)){
-            String index = intent.getSlot("Index").getValue();
-            return readHeadline(index);
+            if(intent.getSlot("Index").getValue() != null && !intent.getSlot("Index").getValue().equals("")){
+                return getHeadlineByIndex(intent.getSlot("Index").getValue());
+            } else if (intent.getSlot("Token").getValue() != null && !intent.getSlot("Token").getValue().equals("")){
+                return getHeadlineByContains(intent.getSlot("Token"));
+            }
+            return getSpeechletResponse("Something went wrong. Sorry bro");
         }
         else {
             throw new SpeechletException("Invalid Intent");
         }
     }
 
-    private SpeechletResponse readHeadline(String index) {
+    private SpeechletResponse getHeadlineByContains(Slot token) {
+
+        Optional<SyndEntry> entry = null;
+        try {
+            List<SyndEntry> entries = parseFeed();
+            entry = entries.stream().filter(eachEntry -> eachEntry.getTitle().toLowerCase().contains(token.getValue())).findFirst();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (FeedException e) {
+            e.printStackTrace();
+        }
+        return getSpeechletResponse(entry.isPresent() ? entry.get().getDescription().getValue() : "Sorry, no headline matched that description");
+    }
+
+    private SpeechletResponse getHeadlineByIndex(String index) {
         SyndEntry syndEntry = null;
         try {
              syndEntry = parseFeed().get(Integer.valueOf(index) + -1);
