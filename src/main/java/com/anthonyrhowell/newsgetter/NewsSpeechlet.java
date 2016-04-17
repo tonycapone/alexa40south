@@ -6,22 +6,34 @@ import com.amazon.speech.speechlet.*;
 import com.amazon.speech.ui.PlainTextOutputSpeech;
 import com.amazon.speech.ui.Reprompt;
 import com.amazon.speech.ui.SimpleCard;
+import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
+import org.apache.commons.lang3.time.DateUtils;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeUtils;
+import org.ocpsoft.prettytime.PrettyTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URL;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
 public class NewsSpeechlet implements Speechlet {
 
     private static final Logger log = LoggerFactory.getLogger(NewsSpeechlet.class);
+    private String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
+    private String WEEK_DATE_FORMAT = "yyy-'W'w";
+
     @Override
     public void onSessionStarted(SessionStartedRequest request, Session session) throws SpeechletException {
         log.info("onSessionStarted requestId={}, sessionId={}", request.getRequestId(),
@@ -41,36 +53,21 @@ public class NewsSpeechlet implements Speechlet {
         log.info("onIntent requestId={}, sessionId={}", request.getRequestId(),
                 session.getSessionId());
 
+
         Intent intent = request.getIntent();
         String intentName = (intent != null) ? intent.getName() : null;
 
         if ("GetHeadlines".equals(intentName)) {
-            return getHeadlines();
+            return getHeadlines(intent);
         } else if ("ReadHeadline".equals(intentName)){
             if(intent.getSlot("Index").getValue() != null && !intent.getSlot("Index").getValue().equals("")){
                 return getHeadlineByIndex(intent.getSlot("Index").getValue());
-            } else if (intent.getSlot("Token").getValue() != null && !intent.getSlot("Token").getValue().equals("")){
-                return getHeadlineByContains(intent.getSlot("Token"));
             }
             return getSpeechletResponse("Something went wrong. Sorry bro");
         }
         else {
             throw new SpeechletException("Invalid Intent");
         }
-    }
-
-    private SpeechletResponse getHeadlineByContains(Slot token) {
-
-        Optional<SyndEntry> entry = null;
-        try {
-            List<SyndEntry> entries = parseFeed();
-            entry = entries.stream().filter(eachEntry -> eachEntry.getTitle().toLowerCase().contains(token.getValue())).findFirst();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (FeedException e) {
-            e.printStackTrace();
-        }
-        return getSpeechletResponse(entry.isPresent() ? entry.get().getDescription().getValue() : "Sorry, no headline matched that description");
     }
 
     private SpeechletResponse getHeadlineByIndex(String index) {
@@ -91,23 +88,9 @@ public class NewsSpeechlet implements Speechlet {
 
     }
 
-    private SpeechletResponse getHeadlines()  {
+    private SpeechletResponse getHeadlines(Intent intent)  {
 
-        String speechText = null;
-        try {
-            speechText = getHeadlinesAsString();
-
-        } catch (FeedException e) {
-            e.printStackTrace();
-            log.error(String.valueOf(e));
-            speechText = "error";
-        } catch (IOException e) {
-            e.printStackTrace();
-            log.error(String.valueOf(e));
-            speechText = "error";
-        }
-        return getSpeechletResponse(speechText);
-
+        return getSpeechletResponse(getHeadlinesAsString(intent));
 
     }
 
@@ -120,17 +103,64 @@ public class NewsSpeechlet implements Speechlet {
         // Create the plain text output.
         PlainTextOutputSpeech speech = new PlainTextOutputSpeech();
         speech.setText(speechText);
-
+        log.info("Returning speech: \n" + speechText);
         return SpeechletResponse.newTellResponse(speech, card);
     }
 
-    private String getHeadlinesAsString() throws IOException, FeedException {
-        String speechText;List<SyndEntry> syndEntries = parseFeed();
+    private String getHeadlinesAsString(Intent intent) {
+        String speechText;
+        List<SyndEntry> syndEntries = null;
+        try {
+            syndEntries = parseFeed();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "Sorry, I was not able to contact 40 South News";
+        } catch (FeedException e) {
+            e.printStackTrace();
+            return "Sorry, I was not able to contact 40 South News";
+        }
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("Here are the top headlines: ");
-        syndEntries.forEach(syndEntry -> stringBuilder.append(syndEntry.getTitle()).append(". "));
+        Date forDate = getDate(intent);
+        PrettyTime p = new PrettyTime(DateUtils.addDays(DateTime.now().toDate(), -1));
+        stringBuilder.append("Here are the headlines");
+        if (forDate.after(DateUtils.addDays(DateTime.now().toDate(), -7))) {
+            stringBuilder.append(" from " + p.format(forDate));
+        }
+        stringBuilder.append(". ");
+        syndEntries.stream().filter(entry -> entry.getPublishedDate()
+                .after(forDate))
+                .forEach(syndEntry -> stringBuilder.append(syndEntry.getTitle())
+                        .append(". "));
         speechText = stringBuilder.toString();
         return speechText;
+    }
+
+    private Date getDate(Intent intent) {
+        String date = intent.getSlot("Date").getValue();
+
+        // If date not specified, get all headlines
+        if (date == null){
+            log.info("No date specified; returning all headlines");
+            return new Date(1);
+        }
+        return parseDateFromString(date);
+    }
+
+    private Date parseDateFromString(String dateString)  {
+        String format = DEFAULT_DATE_FORMAT;
+        if(dateString.contains("W")){
+            format = WEEK_DATE_FORMAT;
+        }
+
+        SimpleDateFormat df = new SimpleDateFormat(format);
+        try {
+            Date date = df.parse(dateString);
+            log.info("Returning headlines since " + date.toString());
+            return date;
+        } catch (ParseException e) {
+            log.error("Unable to parse date " + dateString, e);
+            return null;
+        }
     }
 
     private SpeechletResponse getWelcomeResponse() {
