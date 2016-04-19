@@ -1,12 +1,10 @@
 package com.anthonyrhowell.newsgetter;
 
 import com.amazon.speech.slu.Intent;
-import com.amazon.speech.slu.Slot;
 import com.amazon.speech.speechlet.*;
 import com.amazon.speech.ui.PlainTextOutputSpeech;
 import com.amazon.speech.ui.Reprompt;
 import com.amazon.speech.ui.SimpleCard;
-import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.FeedException;
@@ -14,19 +12,16 @@ import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
 import org.apache.commons.lang3.time.DateUtils;
 import org.joda.time.DateTime;
-import org.joda.time.DateTimeUtils;
 import org.ocpsoft.prettytime.PrettyTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URL;
-import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import java.util.Optional;
 
 public class NewsSpeechlet implements Speechlet {
 
@@ -60,8 +55,10 @@ public class NewsSpeechlet implements Speechlet {
         if ("GetHeadlines".equals(intentName)) {
             return getHeadlines(intent);
         } else if ("ReadHeadline".equals(intentName)){
-            if(intent.getSlot("Index").getValue() != null && !intent.getSlot("Index").getValue().equals("")){
+            if(checkSlot(intent, "Index")){
                 return getHeadlineByIndex(intent.getSlot("Index").getValue());
+            } else if (checkSlot(intent, "Ordinal")){
+                return getHeadlineByOrdinal(intent.getSlot("Ordinal").getValue());
             }
             return getSpeechletResponse("Something went wrong. Sorry bro");
         }
@@ -70,10 +67,22 @@ public class NewsSpeechlet implements Speechlet {
         }
     }
 
+
+    private boolean checkSlot(Intent intent, String slotName) {
+        return intent.getSlot(slotName).getValue() != null && !intent.getSlot(slotName).getValue().equals("");
+    }
+    private SpeechletResponse getHeadlineByOrdinal(String ordinal) {
+        return getHeadlineByIndex(Ordinal.getInt(ordinal));
+    }
+
     private SpeechletResponse getHeadlineByIndex(String index) {
+        return getHeadlineByIndex(Integer.valueOf(index));
+    }
+
+    private SpeechletResponse getHeadlineByIndex(int index) {
         SyndEntry syndEntry = null;
         try {
-             syndEntry = parseFeed().get(Integer.valueOf(index) + -1);
+            syndEntry = parseFeed().get(index + -1);
         } catch (IOException e) {
             e.printStackTrace();
         } catch (FeedException e) {
@@ -104,7 +113,7 @@ public class NewsSpeechlet implements Speechlet {
         PlainTextOutputSpeech speech = new PlainTextOutputSpeech();
         speech.setText(speechText);
         log.info("Returning speech: \n" + speechText);
-        return SpeechletResponse.newTellResponse(speech, card);
+        return SpeechletResponse.newTellResponse(speech, card).should;
     }
 
     private String getHeadlinesAsString(Intent intent) {
